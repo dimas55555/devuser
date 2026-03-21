@@ -1,9 +1,15 @@
-class Location:
-    def __init__(self, id: int, trip_id: int, name: str, country: str):
-        self.id = id
-        self.trip_id = trip_id
-        self.name = name
-        self.country = country
+from pydantic import BaseModel, Field
+from typing import Optional
+from uuid import UUID, uuid4
+from datetime import date
 
-    def __repr__(self):
-        return f"Location(id={self.id}, trip_id={self.trip_id}, name='{self.name}', country='{self.country}')"
+class Location(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    trip_id: UUID
+    name: str
+    country: str
+    city: str
+    description: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    visit_date: Optional[date] = None
