@@ -3,7 +3,6 @@ from src.api import users, trips, locations, bookings
 from src.middlewares import error_handler
 
 app = FastAPI(title="Travel Planner API")
-
 app.add_middleware(error_handler.ErrorHandlerMiddleware)
 error_handler.setup_exception_handlers(app)
 

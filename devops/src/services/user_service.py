@@ -35,7 +35,5 @@ class UserService:
                 return True
         return False
 
-
-# Dependency injection
 def get_user_service() -> UserService:
     return UserService()

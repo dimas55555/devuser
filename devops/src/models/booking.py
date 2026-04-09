@@ -7,7 +7,7 @@ class Booking(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     user_id: UUID
     trip_id: UUID
-    status: str = "pending"  # pending, confirmed, cancelled
+    status: str = "pending"
     booked_at: datetime = Field(default_factory=datetime.utcnow)
     paid_amount: Optional[float] = None
-    payment_status: str = "pending"  # pending, completed, failed
+    payment_status: str = "pending"
