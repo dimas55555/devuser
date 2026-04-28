@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+
+  db:
+    image: postgres:16
+    container_name: travel-postgres
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: travel_db
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    restart: unless-stopped
+
+
+  # =========================
+  # 🔥 MIGRATION JOB (новий)
+  # =========================
+  migration-job:
+    image: sydorenkodmytro2021/travel-planner-api-migration:latest
+    container_name: travel-migration
+
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/travel_db
+
+    depends_on:
+      - db
+
+    restart: "no"   # ❗ важливо: не перезапускати
+
+    command: ["python", "migration_job/main.py"]
+
+
+  travel-planner-api:
+    image: sydorenkodmytro2021/travel-planner-api:latest
+    container_name: travel-planner-api
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      - APP_VERSION=local-dev
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/travel_db
+
+    depends_on:
+      - db
+      - migration-job   # 🔥 важливо: API стартує після міграції
+
+    pull_policy: if_not_present
+    restart: unless-stopped
+
+
+  test-service:
+    image: nginx:latest
+    container_name: test-service
+
+    ports:
+      - "5101:80"
+
+    pull_policy: if_not_present
+
+
+networks:
+  default:
+    name: travel_local_network
+
+
+volumes:
+  postgres_data:

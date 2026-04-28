@@ -6,8 +6,14 @@ trigger:
 
 variables:
   - group: TRAVEL_PLANNER_VARIABLE_GROUP
-  - name: FORCED_APP_VERSION
-    value: ""   # Задайте тут версію, якщо хочете примусово; залиште пустим для авто-розрахунку
+  - name: DockerID
+    value: "$(DOCKER_ID)"
+  - name: DockerToken
+    value: "$(DOCKER_TOKEN)"
+  - name: DockerRepo
+    value: "$(DOCKER_REPO)"
+  - name: ServiceName
+    value: "$(SERVICE_NAME)"
 
 resources:
   repositories:
@@ -16,127 +22,56 @@ resources:
       name: TravelPlan/ci-templates
       ref: main
 
+
 stages:
 
-# =========================================================
-# Pre-Build Stage
-# =========================================================
-- stage: PreBuild
-  displayName: "Pre-Build"
-  jobs:
-    - job: PreBuildAnalysis
-      displayName: "Pre-Build Analysis"
-      steps:
-        - checkout: self
-        - checkout: ci-templates
+# Stage 1 — Pre-Build
+- template: templates/stages/prebuild-stage.yml@ci-templates
+  parameters:
+    vmImage: 'ubuntu-latest'
+    dockerId: $(DockerID)
+    dockerRepo: $(DockerRepo)
+    serviceName: $(ServiceName)
+    dockerToken: $(DockerToken)
 
-        # --- Logging & Predefined variables ---
-        - script: |
-            source $(Build.SourcesDirectory)/ci-templates/common-scripts/logging.sh
+# Stage 2 — Build
+- template: templates/stages/build-test-stage.yml@ci-templates
+  parameters:
+    vmImage: 'ubuntu-latest'
+    appVersion: $[ stageDependencies.PreBuild.JobID_PreBuild.outputs['CalculateAppVersion.APP_VERSION'] ]
+    workingDirectory: 'devops'
+    dockerfilePath: 'Dockerfile'
 
-            info_msg "Hello, from Pre-Build Job"
+# Stage 3 — Docker Build and Push
+- template: templates/stages/docker-build-push-stage.yml@ci-templates
+  parameters:
+    vmImage: 'ubuntu-latest'
+    appVersion: $[ stageDependencies.PreBuild.JobID_PreBuild.outputs['CalculateAppVersion.APP_VERSION'] ]
+    dockerId: $(DockerID)
+    dockerToken: $(DockerToken)
+    serviceName: $(ServiceName)
+    dockerfilePath: 'Dockerfile'
+    migrationDockerfilePath: 'devops/Dockerfile'
 
-            info_msg "Agent.TempDirectory: $(Agent.TempDirectory)"
-            info_msg "Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)"
-            info_msg "Build.Repository.LocalPath: $(Build.Repository.LocalPath)"
-            info_msg "Build.Repository.Name: $(Build.Repository.Name)"
-            info_msg "Build.SourceBranch: $(Build.SourceBranch)"
-            info_msg "Build.SourceBranchName: $(Build.SourceBranchName)"
-            info_msg "Build.SourcesDirectory: $(Build.SourcesDirectory)"
-            info_msg "Build.StagingDirectory: $(Build.StagingDirectory)"
-            
-            info_msg "DOCKER_ID: $(DOCKER_ID)"
-            info_msg "DOCKER_REPO: $(DOCKER_REPO)"
-            info_msg "SERVICE_NAME: $(SERVICE_NAME)"
-            info_msg "DOCKER_TOKEN: $(DOCKER_TOKEN)"
-          displayName: "Predefined variables with colors"
-
-        # --- Calculate APP_VERSION (with optional forced version) ---
-        - script: |
-            source $(Build.SourcesDirectory)/ci-templates/common-scripts/logging.sh
-            source $(Build.SourcesDirectory)/ci-templates/common-scripts/dockerhub.sh
-
-            if [ -n "$(FORCED_APP_VERSION)" ]; then
-              APP_VERSION="$(FORCED_APP_VERSION)"
-              info_msg "Using forced APP_VERSION: $APP_VERSION"
-            else
-              latest_version=$(get_latest_docker_version $(DOCKER_ID) $(DOCKER_REPO))
-              info_msg "Latest Docker version: $latest_version"
-
-              IFS='.' read -r major minor patch <<< "$latest_version"
-              patch=$((patch+1))
-              APP_VERSION="${major}.${minor}.${patch}"
-              info_msg "Calculated APP_VERSION: $APP_VERSION"
-            fi
-
-            # Зберегти змінну для наступних stage/job
-            echo "##vso[task.setvariable variable=APP_VERSION;isOutput=true]$APP_VERSION"
-          displayName: "CalculateAppVersion"
-          name: CalculateAppVersion
-
-# =========================================================
-# Build and Test Stage
-# =========================================================
-- stage: BuildTest
-  displayName: "Project: Build and Test"
-  dependsOn: PreBuild
-  condition: succeeded()
-  variables:
-    APP_VERSION: $[ dependencies.PreBuild.outputs['PreBuildAnalysis.CalculateAppVersion.APP_VERSION'] ]
-  jobs:
-    - job: BuildAndTest
-      displayName: "Build And Test"
-      steps:
-        # --- Checkout репозиторії ще раз ---
-        - checkout: self
-        - checkout: ci-templates
-
-        # --- Step: Build Message ---
-        - script: |
-            source $(Build.SourcesDirectory)/ci-templates/common-scripts/logging.sh
-
-            info_msg "Hello, from Build And Test Job"
-            info_msg "Building service: $(SERVICE_NAME)"
-            info_msg "Docker repo: $(DOCKER_ID)/$(DOCKER_REPO)"
-            info_msg "Docker image version: $(APP_VERSION)"
-          displayName: "Build Message"
-
-        # --- Step: Build Docker Image ---
-        - script: |
-            source $(Build.SourcesDirectory)/ci-templates/common-scripts/logging.sh
-
-            info_msg "Building Docker image for service: $(SERVICE_NAME)"
-            docker build -t $(DOCKER_ID)/$(DOCKER_REPO):$(APP_VERSION) .
-
-            info_msg "Docker image built: $(DOCKER_ID)/$(DOCKER_REPO):$(APP_VERSION)"
-          displayName: "Build Docker Image"
-
-# =========================================================
-# Post-Build Stage
-# =========================================================
+# Stage 4 — Post-Build
 - stage: PostBuild
-  displayName: "Post-Build"
-  dependsOn: BuildTest
-  condition: |
-    and(
-      succeeded(),
-      eq(variables['Build.SourceBranch'], 'refs/heads/main')
-    )
+  displayName: 'Post-Build'
+  dependsOn:
+    - PreBuild
+    - BuildTest
+    - DockerBuildAndPush
+
+  condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+  variables:
+    APP_VERSION: $[ stageDependencies.PreBuild.JobID_PreBuild.outputs['CalculateAppVersion.APP_VERSION'] ]
   jobs:
-    - job: PostBuildJob
-      displayName: "Post-Build"
+    - job: JobID_PostBuild
+      displayName: 'Post-Build Info'
+      pool:
+        vmImage: 'ubuntu-latest'
+
       steps:
-        # --- Checkout репозиторії ще раз ---
-        - checkout: self
-        - checkout: ci-templates
-
         - script: |
-            source $(Build.SourcesDirectory)/ci-templates/common-scripts/logging.sh
+            echo "Application version: $(APP_VERSION)"
+          displayName: "Print Application Version"
 
-            info_msg "Hello, from Post-Build Job"
-            info_msg "Pushing to Docker Hub..."
-            info_msg "User: $(DOCKER_ID)"
-            info_msg "Repo: $(DOCKER_REPO)"
-            info_msg "Image Tag: $(APP_VERSION)"
-            # Тут можна додати docker login & push
-          displayName: "Post-Build Message"

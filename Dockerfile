@@ -2,17 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# копіюємо requirements
-COPY devops/requirements.txt .
+ARG AppVersion
+ENV APP_VERSION=${AppVersion}
 
-# встановлюємо залежності
+ENV PYTHONUNBUFFERED=1
+
+COPY devops/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# копіюємо весь код
 COPY devops/ .
 
-# порт (якщо API)
 EXPOSE 8000
 
-# команда запуску (зміни під свій проєкт)
-CMD ["python", "main.py"]
+CMD ["uvicorn", "main_orm:app", "--host", "0.0.0.0", "--port", "8000"]
